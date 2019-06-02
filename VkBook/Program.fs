@@ -12,8 +12,7 @@ type WallPost =
     { Text : string
       ImageAttachments : Uri [] }
 
-// TODO: extract group id
-let getAllWallPostsRaw (api : VkApi) batchSize =
+let getAllWallPostsRaw (api : VkApi) ownerId batchSize =
     let rec getAllWallPostsRec offset (remains : uint64) (res : Attachments.Post list) =
         match remains with
         | 0uL -> res
@@ -22,8 +21,8 @@ let getAllWallPostsRaw (api : VkApi) batchSize =
             let wall =
                 api.Wall.Get
                     (WallGetParams
-                         (OwnerId = Nullable(-73664556L), Filter = WallFilter.Owner,
-                          Count = countToGet, Offset = uint64 offset), skipAuthorization = false)
+                         (OwnerId = Nullable(ownerId), Filter = WallFilter.Owner, Count = countToGet,
+                          Offset = uint64 offset))
 
             let appended =
                 wall.WallPosts
@@ -32,11 +31,9 @@ let getAllWallPostsRaw (api : VkApi) batchSize =
             getAllWallPostsRec (offset + wall.WallPosts.Count)
                 (remains - uint64 wall.WallPosts.Count) appended
 
-    let wall = api.Wall.Get(WallGetParams(OwnerId = Nullable(-73664556L), Count = uint64 0))
-    // TODO: uncomment and replace with
+    let wall = api.Wall.Get(WallGetParams(OwnerId = Nullable(ownerId), Count = uint64 0))
     getAllWallPostsRec 0 wall.TotalCount []
 
-// getAllWallPostsRec 0 10uL []
 let vkPostToBookChapter (document : Document) post =
     let paragraph = new Paragraph()
     paragraph.SpacingBefore <- float32 10
@@ -58,8 +55,9 @@ let getConfig =
     if String.IsNullOrEmpty(accessToken) then failwith "ACCESS_TOKEN env var is required"
     accessToken
 
-let getTransformedWallPosts (api : VkApi) =
-    getAllWallPostsRaw api 100uL
+let getTransformedWallPosts (api : VkApi) ownerId =
+    let batchSize = 100uL
+    getAllWallPostsRaw api ownerId batchSize
     |> Seq.map (fun a ->
            { Text = a.Text
              ImageAttachments =
@@ -72,11 +70,12 @@ let getTransformedWallPosts (api : VkApi) =
 
 [<EntryPoint>]
 let main argv =
+    let ownerId = argv.[0] |> int64
     let accessToken = getConfig
     use api = new VkApi()
     do api.Authorize(ApiAuthParams(AccessToken = accessToken))
     use document = new Document(PageSize.A4)
-    let wall = getTransformedWallPosts api
+    let wall = getTransformedWallPosts api ownerId
     use fs = new FileStream("book.pdf", FileMode.Create)
     let writer = PdfWriter.GetInstance(document, fs)
     document.Open()
