@@ -1,16 +1,18 @@
-﻿// Learn more about F# at http://fsharp.org
-open System
+﻿open System
 open VkNet
 open VkNet.Model
 open VkNet.Model.RequestParams
 open VkNet.Enums.SafetyEnums
 open VkNet.Model.Attachments
+open iTextSharp.text
+open iTextSharp.text.pdf
+open System.IO
 
 type WallPost =
     { Text : string
       ImageAttachments : Uri [] }
 
-// TODO: extract groupd id
+// TODO: extract group id
 let getAllWallPostsRaw (api : VkApi) batchSize =
     let rec getAllWallPostsRec offset (remains : uint64) (res : Attachments.Post list) =
         match remains with
@@ -32,8 +34,29 @@ let getAllWallPostsRaw (api : VkApi) batchSize =
 
     let wall = api.Wall.Get(WallGetParams(OwnerId = Nullable(-73664556L), Count = uint64 0))
     // TODO: uncomment and replace with
-    // getAllWallPostsRec 0 wall.TotalCount []
-    getAllWallPostsRec 0 10uL []
+    getAllWallPostsRec 0 wall.TotalCount []
+
+// getAllWallPostsRec 0 10uL []
+let vkPostToBookChapter (document : Document) post =
+    let paragraph = new Paragraph()
+    paragraph.SpacingBefore <- float32 10
+    paragraph.SpacingAfter <- float32 10
+    paragraph.Alignment <- Element.ALIGN_JUSTIFIED
+    let ppp = System.Text.CodePagesEncodingProvider.Instance
+    System.Text.Encoding.RegisterProvider(ppp)
+    let sylfaenpath = Environment.GetEnvironmentVariable("SystemRoot") + "\\fonts\\times.ttf"
+    let sylfaen = BaseFont.CreateFont(sylfaenpath, BaseFont.IDENTITY_H, BaseFont.EMBEDDED)
+    let normal = new Font(sylfaen, float32 12, Font.NORMAL, BaseColor.BLACK)
+    paragraph.Font <- normal
+    paragraph.Add(post.Text)
+    document.Add(paragraph)
+    document.NewPage()
+    ()
+
+let getConfig =
+    let accessToken = Environment.GetEnvironmentVariable("ACCESS_TOKEN")
+    if String.IsNullOrEmpty(accessToken) then failwith "ACCESS_TOKEN env var is required"
+    accessToken
 
 let getTransformedWallPosts (api : VkApi) =
     getAllWallPostsRaw api 100uL
@@ -43,17 +66,22 @@ let getTransformedWallPosts (api : VkApi) =
                  a.Attachments
                  |> Seq.filter (fun atm -> atm.Type = typeof<Photo>)
                  |> Seq.map (fun atm -> atm.Instance :?> Photo)
-                 // TODO: choose biggest one?
+                 // TODO: choose smallest one?
                  |> Seq.map (fun atm -> atm.Sizes.[0].Url)
                  |> Seq.toArray })
 
 [<EntryPoint>]
 let main argv =
-    let api = new VkApi()
-    do api.Authorize
-           (ApiAuthParams
-                (AccessToken = "0c937c853dcce5e28c6f64b25d0420d2dbb7eb8c493c848d4e46845302df4bc0afed0678fa840fc19415d"))
+    let accessToken = getConfig
+    use api = new VkApi()
+    do api.Authorize(ApiAuthParams(AccessToken = accessToken))
+    use document = new Document(PageSize.A4)
     let wall = getTransformedWallPosts api
-    printf "%A" wall
-    //6527732d123fe4156590f3b84c1c1645dfb3ad984951f4c23dfdcb9d68c3bface5a90932dd4353c95358f
+    use fs = new FileStream("book.pdf", FileMode.Create)
+    let writer = PdfWriter.GetInstance(document, fs)
+    document.Open()
+    wall
+    |> Seq.rev
+    |> Seq.iter (vkPostToBookChapter document)
+    document.Close()
     0 // return an integer exit code

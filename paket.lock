@@ -12,6 +12,7 @@ NUGET
       System.Xml.XmlDocument (>= 4.3)
       System.Xml.XPath (>= 4.3)
       System.Xml.XPath.XmlDocument (>= 4.3)
+    iTextSharp (5.5.13)
     Microsoft.Extensions.DependencyInjection (2.2)
       Microsoft.Extensions.DependencyInjection.Abstractions (>= 2.2)
     Microsoft.Extensions.DependencyInjection.Abstractions (2.2)
