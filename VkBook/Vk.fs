@@ -8,6 +8,8 @@ open VkNet.Model.Attachments
 open VkBook.Domain
 open VkNet.Model
 
+type OwnerId = OwnerId of int64
+
 let batchSize = 100uL
 
 let private getWallByOwnerAsync (api : VkApi) (ownerId : int64) (count : uint64) (offset : uint64) =
@@ -49,7 +51,7 @@ let private transformPost (post : Post) =
           |> Seq.map getMaxSizePhotoAttachment
           |> Seq.toArray }
 
-let getTransformedWallPosts (api : VkApi) ownerId =
+let getTransformedWallPosts (api : VkApi) (OwnerId ownerId) =
     let getWall = getWallByOwnerAsync api ownerId
     async { let! posts = getAllWallPostsRaw getWall batchSize
             return posts |> Seq.map transformPost }

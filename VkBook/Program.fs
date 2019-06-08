@@ -47,7 +47,7 @@ let getConfig =
 
 [<EntryPoint>]
 let main argv =
-    let ownerId = argv.[0] |> int64
+    let ownerId = argv.[0] |> int64 |> OwnerId
     let accessToken = getConfig
     use api = new VkApi()
     do api.Authorize(ApiAuthParams(AccessToken = accessToken))
