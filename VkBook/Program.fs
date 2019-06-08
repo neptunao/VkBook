@@ -55,8 +55,11 @@ let main argv =
     use writer = new PdfWriter(fs)
     use pdf = new PdfDocument(writer)
     use document = new Document(pdf)
-    let wall = getTransformedWallPosts api ownerId
-    wall
-    |> Seq.rev
-    |> Seq.iter (vkPostToBookChapter document)
+    async {
+        let! wall = getTransformedWallPosts api ownerId
+        wall
+        |> Seq.rev
+        |> Seq.iter (vkPostToBookChapter document)
+    }
+    |> Async.RunSynchronously
     0
