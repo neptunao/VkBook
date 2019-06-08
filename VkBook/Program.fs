@@ -1,53 +1,43 @@
 ﻿open System
 open VkNet
 open VkNet.Model
-open VkNet.Model.RequestParams
-open VkNet.Enums.SafetyEnums
-open VkNet.Model.Attachments
-open iTextSharp.text
-open iTextSharp.text.pdf
 open System.IO
+open System.Net
+open iText.Layout.Element
+open iText.Layout.Properties
+open iText.Kernel.Pdf
+open iText.Kernel.Font
+open VkBook.Vk
+open VkBook.Domain
 
-type WallPost =
-    { Text : string
-      ImageAttachments : Uri [] }
+type Document = iText.Layout.Document
 
-let getAllWallPostsRaw (api : VkApi) ownerId batchSize =
-    let rec getAllWallPostsRec offset (remains : uint64) (res : Attachments.Post list) =
-        match remains with
-        | 0uL -> res
-        | remains ->
-            let countToGet = Math.Min(batchSize, remains)
-            let wall =
-                api.Wall.Get
-                    (WallGetParams
-                         (OwnerId = Nullable(ownerId), Filter = WallFilter.Owner, Count = countToGet,
-                          Offset = uint64 offset))
-
-            let appended =
-                wall.WallPosts
-                |> List.ofSeq
-                |> List.append res
-            getAllWallPostsRec (offset + wall.WallPosts.Count)
-                (remains - uint64 wall.WallPosts.Count) appended
-
-    let wall = api.Wall.Get(WallGetParams(OwnerId = Nullable(ownerId), Count = uint64 0))
-    getAllWallPostsRec 0 wall.TotalCount []
-
-let vkPostToBookChapter (document : Document) post =
+// Image size 604 x 339
+let vkPostToBookChapter (document : Document) (post : WallPost) =
     let paragraph = new Paragraph()
-    paragraph.SpacingBefore <- float32 10
-    paragraph.SpacingAfter <- float32 10
-    paragraph.Alignment <- Element.ALIGN_JUSTIFIED
+    // paragraph.SetSpacingBefore <- float32 10
+    // paragraph.SpacingAfter <- float32 10
+    paragraph.SetTextAlignment(new Nullable<TextAlignment>(TextAlignment.JUSTIFIED))
     let ppp = System.Text.CodePagesEncodingProvider.Instance
     System.Text.Encoding.RegisterProvider(ppp)
-    let sylfaenpath = Environment.GetEnvironmentVariable("SystemRoot") + "\\fonts\\times.ttf"
-    let sylfaen = BaseFont.CreateFont(sylfaenpath, BaseFont.IDENTITY_H, BaseFont.EMBEDDED)
-    let normal = new Font(sylfaen, float32 12, Font.NORMAL, BaseColor.BLACK)
-    paragraph.Font <- normal
+    let fontFilePath = Environment.GetEnvironmentVariable("SystemRoot") + "\\fonts\\georgia.ttf"
+    paragraph.SetFont(PdfFontFactory.CreateFont(fontFilePath, "CP1251", true))
     paragraph.Add(post.Text)
     document.Add(paragraph)
-    document.NewPage()
+    post.ImageAttachments
+    |> Seq.iter (fun atm ->
+           let req = WebRequest.CreateDefault(atm)
+           use r = req.GetResponse()
+           use ns = r.GetResponseStream()
+           use ms = new MemoryStream()
+           ns.CopyTo(ms, 81920)
+           let img = new Image(iText.IO.Image.ImageDataFactory.CreateJpeg(ms.ToArray()))
+           img.SetMargins(float32 10., float32 0., float32 10., float32 0.)
+           img.ScaleToFit(img.GetImageWidth(), float32 339)
+           //    img.SetAutoScaleWidth(true)
+           img.SetHorizontalAlignment(Nullable<HorizontalAlignment>(HorizontalAlignment.CENTER))
+           document.Add(img) |> ignore)
+    document.Add(new AreaBreak(new Nullable<AreaBreakType>(AreaBreakType.NEXT_PAGE))) |> ignore
     ()
 
 let getConfig =
@@ -55,32 +45,18 @@ let getConfig =
     if String.IsNullOrEmpty(accessToken) then failwith "ACCESS_TOKEN env var is required"
     accessToken
 
-let getTransformedWallPosts (api : VkApi) ownerId =
-    let batchSize = 100uL
-    getAllWallPostsRaw api ownerId batchSize
-    |> Seq.map (fun a ->
-           { Text = a.Text
-             ImageAttachments =
-                 a.Attachments
-                 |> Seq.filter (fun atm -> atm.Type = typeof<Photo>)
-                 |> Seq.map (fun atm -> atm.Instance :?> Photo)
-                 // TODO: choose smallest one?
-                 |> Seq.map (fun atm -> atm.Sizes.[0].Url)
-                 |> Seq.toArray })
-
 [<EntryPoint>]
 let main argv =
     let ownerId = argv.[0] |> int64
     let accessToken = getConfig
     use api = new VkApi()
     do api.Authorize(ApiAuthParams(AccessToken = accessToken))
-    use document = new Document(PageSize.A4)
-    let wall = getTransformedWallPosts api ownerId
     use fs = new FileStream("book.pdf", FileMode.Create)
-    let writer = PdfWriter.GetInstance(document, fs)
-    document.Open()
+    use writer = new PdfWriter(fs)
+    use pdf = new PdfDocument(writer)
+    use document = new Document(pdf)
+    let wall = getTransformedWallPosts api ownerId
     wall
     |> Seq.rev
     |> Seq.iter (vkPostToBookChapter document)
-    document.Close()
-    0 // return an integer exit code
+    0

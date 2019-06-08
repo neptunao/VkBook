@@ -2,5 +2,5 @@ source https://www.nuget.org/api/v2
 
 framework: >= netcoreapp2.2
 nuget FSharp.Core
-nuget iTextSharp
+nuget itext7 7.1.6
 nuget VkNet ~> 1.43
