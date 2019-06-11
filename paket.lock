@@ -1,6 +1,7 @@
 RESTRICTION: >= netcoreapp2.2
 NUGET
   remote: https://www.nuget.org/api/v2
+    CommandLineParser (2.5)
     Common.Logging (3.4.1)
       Common.Logging.Core (>= 3.4.1)
       Microsoft.CSharp (>= 4.0.1)

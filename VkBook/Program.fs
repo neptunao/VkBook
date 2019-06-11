@@ -9,8 +9,15 @@ open iText.Kernel.Pdf
 open iText.Kernel.Font
 open VkBook.Vk
 open VkBook.Domain
+open CommandLine
 
 type Document = iText.Layout.Document
+
+type CmdOptions =
+    { [<Option('o', "out", Default = "./book.pdf", HelpText = "Location of the PDF file output")>]
+      OutputPath : string
+      [<Option("oid", Required = true, HelpText = "vk.com source wall's owner (user or group) id")>]
+      OwnerId : Int64 }
 
 // Image size 604 x 339
 let vkPostToBookChapter (document : Document) (post : WallPost) =
@@ -45,21 +52,31 @@ let getConfig =
     if String.IsNullOrEmpty(accessToken) then failwith "ACCESS_TOKEN env var is required"
     accessToken
 
+//TODO: refactor it, especially NotParsed case
 [<EntryPoint>]
 let main argv =
-    let ownerId = argv.[0] |> int64 |> OwnerId
     let accessToken = getConfig
-    use api = new VkApi()
-    do api.Authorize(ApiAuthParams(AccessToken = accessToken))
-    use fs = new FileStream("book.pdf", FileMode.Create)
-    use writer = new PdfWriter(fs)
-    use pdf = new PdfDocument(writer)
-    use document = new Document(pdf)
-    async {
-        let! wall = getTransformedWallPosts api ownerId
-        wall
-        |> Seq.rev
-        |> Seq.iter (vkPostToBookChapter document)
-    }
-    |> Async.RunSynchronously
-    0
+    let result = CommandLine.Parser.Default.ParseArguments<CmdOptions>(argv)
+    match result with
+    | :? (Parsed<CmdOptions>) as parsed ->
+        let ownerId = parsed.Value.OwnerId |> OwnerId
+        let outFilePath = Path.GetFullPath(parsed.Value.OutputPath)
+        use api = new VkApi()
+        do api.Authorize(ApiAuthParams(AccessToken = accessToken))
+        use fs = new FileStream(outFilePath, FileMode.Create)
+        use writer = new PdfWriter(fs)
+        use pdf = new PdfDocument(writer)
+        use document = new Document(pdf)
+        async {
+            let! wall = getTransformedWallPosts api ownerId
+            wall
+            |> Seq.rev
+            |> Seq.iter (vkPostToBookChapter document)
+        }
+        |> Async.RunSynchronously
+        0
+    | :? (NotParsed<CmdOptions>) ->
+        failwith "Parsing of cmd arguments failed"
+    | x ->
+        sprintf "CommandLine.Parser.Default.ParseArguments returned unexpected result: %O" x
+        |> failwith
