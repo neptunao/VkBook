@@ -19,33 +19,43 @@ type CmdOptions =
       [<Option("oid", Required = true, HelpText = "vk.com source wall's owner (user or group) id")>]
       OwnerId : Int64 }
 
-// Image size 604 x 339
+let readImageBytes (url : Uri) =
+    async {
+        let req = WebRequest.CreateDefault(url)
+        use! r = req.GetResponseAsync() |> Async.AwaitTask
+        use ns = r.GetResponseStream()
+        use ms = new MemoryStream()
+        ns.CopyTo(ms, 81920)
+        return ms.ToArray()
+    }
+
+let areaBreak (areaBreakType : AreaBreakType) =
+    AreaBreak(new Nullable<AreaBreakType>(areaBreakType))
+
 let vkPostToBookChapter (document : Document) (post : WallPost) =
-    let paragraph = new Paragraph()
-    // paragraph.SetSpacingBefore <- float32 10
-    // paragraph.SpacingAfter <- float32 10
-    paragraph.SetTextAlignment(new Nullable<TextAlignment>(TextAlignment.JUSTIFIED))
+    let paragraph = Paragraph()
     let ppp = System.Text.CodePagesEncodingProvider.Instance
     System.Text.Encoding.RegisterProvider(ppp)
     let fontFilePath = Environment.GetEnvironmentVariable("SystemRoot") + "\\fonts\\georgia.ttf"
-    paragraph.SetFont(PdfFontFactory.CreateFont(fontFilePath, "CP1251", true))
-    paragraph.Add(post.Text)
-    document.Add(paragraph)
-    post.ImageAttachments
-    |> Seq.iter (fun atm ->
-           let req = WebRequest.CreateDefault(atm)
-           use r = req.GetResponse()
-           use ns = r.GetResponseStream()
-           use ms = new MemoryStream()
-           ns.CopyTo(ms, 81920)
-           let img = new Image(iText.IO.Image.ImageDataFactory.CreateJpeg(ms.ToArray()))
-           img.SetMargins(float32 10., float32 0., float32 10., float32 0.)
-           img.ScaleToFit(img.GetImageWidth(), float32 339)
-           //    img.SetAutoScaleWidth(true)
-           img.SetHorizontalAlignment(Nullable<HorizontalAlignment>(HorizontalAlignment.CENTER))
-           document.Add(img) |> ignore)
-    document.Add(new AreaBreak(new Nullable<AreaBreakType>(AreaBreakType.NEXT_PAGE))) |> ignore
-    ()
+    paragraph.SetTextAlignment(new Nullable<TextAlignment>(TextAlignment.JUSTIFIED))
+             .SetFont(PdfFontFactory.CreateFont(fontFilePath, "CP1251", true)).Add(post.Text)
+    |> ignore
+    document.Add(paragraph) |> ignore
+    async {
+        let! attachmentImagesRaw = post.ImageAttachments
+                                   |> Seq.map readImageBytes
+                                   |> Async.Parallel
+        attachmentImagesRaw
+        |> Seq.map (fun bytes -> Image(iText.IO.Image.ImageDataFactory.CreateJpeg(bytes)))
+        |> Seq.map
+               (fun img ->
+               img.SetMargins(float32 10., float32 0., float32 10., float32 0.)
+                  .SetAutoScaleWidth(true)
+                  .SetHorizontalAlignment(Nullable<HorizontalAlignment>(HorizontalAlignment.CENTER)))
+        |> Seq.iter (fun img -> document.Add(img) |> ignore)
+        document.Add(areaBreak AreaBreakType.NEXT_PAGE) |> ignore
+        return ()
+    }
 
 let getConfig =
     let accessToken = Environment.GetEnvironmentVariable("VK_ACCESS_TOKEN")
@@ -67,16 +77,18 @@ let main argv =
         use writer = new PdfWriter(fs)
         use pdf = new PdfDocument(writer)
         use document = new Document(pdf)
+        let vkPostToBookChapter = vkPostToBookChapter document
         async {
             let! wall = getTransformedWallPosts api ownerId
-            wall
-            |> Seq.rev
-            |> Seq.iter (vkPostToBookChapter document)
+            return! wall
+                    |> Seq.rev
+                    |> Seq.map vkPostToBookChapter
+                    |> Async.Parallel
+                    |> Async.Ignore
         }
         |> Async.RunSynchronously
         0
-    | :? (NotParsed<CmdOptions>) ->
-        failwith "Parsing of cmd arguments failed"
+    | :? (NotParsed<CmdOptions>) -> failwith "Parsing of cmd arguments failed"
     | x ->
         sprintf "CommandLine.Parser.Default.ParseArguments returned unexpected result: %O" x
         |> failwith
