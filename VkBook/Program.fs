@@ -48,8 +48,8 @@ let vkPostToBookChapter (document : Document) (post : WallPost) =
     ()
 
 let getConfig =
-    let accessToken = Environment.GetEnvironmentVariable("ACCESS_TOKEN")
-    if String.IsNullOrEmpty(accessToken) then failwith "ACCESS_TOKEN env var is required"
+    let accessToken = Environment.GetEnvironmentVariable("VK_ACCESS_TOKEN")
+    if String.IsNullOrEmpty(accessToken) then failwith "VK_ACCESS_TOKEN env var is required"
     accessToken
 
 //TODO: refactor it, especially NotParsed case
