@@ -51,7 +51,7 @@ let private transformPost (post : Post) =
           |> Seq.map getMaxSizePhotoAttachment
           |> Seq.toArray }
 
-let getTransformedWallPosts (api : VkApi) (OwnerId ownerId) =
+let getTransformedWallPosts (api : VkApi) (OwnerId (SafeInt64 ownerId)) =
     let getWall = getWallByOwnerAsync api ownerId
     async { let! posts = getAllWallPostsRaw getWall batchSize
             return posts |> Seq.map transformPost }
