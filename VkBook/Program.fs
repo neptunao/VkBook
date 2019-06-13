@@ -10,6 +10,7 @@ open iText.Kernel.Font
 open VkBook.Vk
 open VkBook.Domain
 open CommandLine
+open iText.Layout
 
 type Document = iText.Layout.Document
 
@@ -45,14 +46,16 @@ let vkPostToBookChapter (document : Document) (post : WallPost) =
         let! attachmentImagesRaw = post.ImageAttachments
                                    |> Seq.map readImageBytes
                                    |> Async.Parallel
-        attachmentImagesRaw
-        |> Seq.map (fun bytes -> Image(iText.IO.Image.ImageDataFactory.CreateJpeg(bytes)))
-        |> Seq.map
-               (fun img ->
-               img.SetMargins(float32 10., float32 0., float32 10., float32 0.)
-                  .SetAutoScaleWidth(true)
-                  .SetHorizontalAlignment(Nullable<HorizontalAlignment>(HorizontalAlignment.CENTER)))
-        |> Seq.iter (fun img -> document.Add(img) |> ignore)
+        let document =
+            attachmentImagesRaw
+            |> Seq.map (fun bytes -> Image(iText.IO.Image.ImageDataFactory.CreateJpeg(bytes)))
+            |> Seq.map
+                   (fun img ->
+                   img.SetMargins(float32 10., float32 0., float32 10., float32 0.)
+                      .SetAutoScaleWidth(true)
+                      .SetHorizontalAlignment(Nullable<HorizontalAlignment>
+                                                  (HorizontalAlignment.CENTER)))
+            |> Seq.fold (fun (doc : Document) img -> doc.Add(img)) document
         document.Add(areaBreak AreaBreakType.NEXT_PAGE) |> ignore
         return ()
     }
