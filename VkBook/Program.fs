@@ -34,27 +34,26 @@ let areaBreak (areaBreakType : AreaBreakType) =
     AreaBreak(new Nullable<AreaBreakType>(areaBreakType))
 
 let vkPostToBookChapter (document : Document) (post : WallPost) =
+    let configureImage (img : Image) =
+        img.SetMargins(float32 10., float32 0., float32 10., float32 0.).SetAutoScaleWidth(true)
+           .SetHorizontalAlignment(Nullable<HorizontalAlignment>(HorizontalAlignment.CENTER))
     let paragraph = Paragraph()
     let ppp = System.Text.CodePagesEncodingProvider.Instance
     System.Text.Encoding.RegisterProvider(ppp)
     let fontFilePath = Environment.GetEnvironmentVariable("SystemRoot") + "\\fonts\\georgia.ttf"
-    paragraph.SetTextAlignment(new Nullable<TextAlignment>(TextAlignment.JUSTIFIED))
-             .SetFont(PdfFontFactory.CreateFont(fontFilePath, "CP1251", true)).Add(post.Text)
-    |> ignore
-    document.Add(paragraph) |> ignore
+    let paragraph =
+        paragraph.SetTextAlignment(new Nullable<TextAlignment>(TextAlignment.JUSTIFIED))
+                 .SetFont(PdfFontFactory.CreateFont(fontFilePath, "CP1251", true)).Add(post.Text)
+    let document = document.Add(paragraph)
     async {
         let! attachmentImagesRaw = post.ImageAttachments
                                    |> Seq.map readImageBytes
                                    |> Async.Parallel
         let document =
             attachmentImagesRaw
-            |> Seq.map (fun bytes -> Image(iText.IO.Image.ImageDataFactory.CreateJpeg(bytes)))
-            |> Seq.map
-                   (fun img ->
-                   img.SetMargins(float32 10., float32 0., float32 10., float32 0.)
-                      .SetAutoScaleWidth(true)
-                      .SetHorizontalAlignment(Nullable<HorizontalAlignment>
-                                                  (HorizontalAlignment.CENTER)))
+            |> Seq.map (iText.IO.Image.ImageDataFactory.CreateJpeg
+                        >> Image
+                        >> configureImage)
             |> Seq.fold (fun (doc : Document) img -> doc.Add(img)) document
         document.Add(areaBreak AreaBreakType.NEXT_PAGE) |> ignore
         return ()
