@@ -33,7 +33,16 @@ let readImageBytes (url : Uri) =
 let areaBreak (areaBreakType : AreaBreakType) =
     AreaBreak(new Nullable<AreaBreakType>(areaBreakType))
 
-let vkPostToBookChapter (document : Document) (post : WallPost) =
+let downloadPostImages (post : WallPost) =
+    async {
+        let! attachmentImagesRaw = post.ImageAttachments
+                                   |> Seq.map readImageBytes
+                                   |> Async.Parallel
+        return { Text = post.Text
+                 ImageAttachmentsRawBytes = attachmentImagesRaw }
+    }
+
+let vkPostToBookChapter (document : Document) (post : WallPostDownloaded) =
     let configureImage (img : Image) =
         img.SetMargins(float32 10., float32 0., float32 10., float32 0.).SetAutoScaleWidth(true)
            .SetHorizontalAlignment(Nullable<HorizontalAlignment>(HorizontalAlignment.CENTER))
@@ -45,19 +54,15 @@ let vkPostToBookChapter (document : Document) (post : WallPost) =
         paragraph.SetTextAlignment(new Nullable<TextAlignment>(TextAlignment.JUSTIFIED))
                  .SetFont(PdfFontFactory.CreateFont(fontFilePath, "CP1251", true)).Add(post.Text)
     let document = document.Add(paragraph)
-    async {
-        let! attachmentImagesRaw = post.ImageAttachments
-                                   |> Seq.map readImageBytes
-                                   |> Async.Parallel
-        let document =
-            attachmentImagesRaw
-            |> Seq.map (iText.IO.Image.ImageDataFactory.CreateJpeg
-                        >> Image
-                        >> configureImage)
-            |> Seq.fold (fun (doc : Document) img -> doc.Add(img)) document
-        document.Add(areaBreak AreaBreakType.NEXT_PAGE) |> ignore
-        return ()
-    }
+
+    let document =
+        post.ImageAttachmentsRawBytes
+        |> Seq.map (iText.IO.Image.ImageDataFactory.CreateJpeg
+                    >> Image
+                    >> configureImage)
+        |> Seq.fold (fun (doc : Document) img -> doc.Add(img)) document
+    document.Add(areaBreak AreaBreakType.NEXT_PAGE) |> ignore
+    document
 
 let getConfig =
     let accessToken = Environment.GetEnvironmentVariable("VK_ACCESS_TOKEN")
@@ -79,16 +84,16 @@ let main argv =
         use writer = new PdfWriter(fs)
         use pdf = new PdfDocument(writer)
         use document = new Document(pdf)
-        let vkPostToBookChapter = vkPostToBookChapter document
         async {
             let! wall = getTransformedWallPosts api ownerId
-            return! wall
-                    |> Seq.rev
-                    |> Seq.map vkPostToBookChapter
-                    |> Async.Parallel
-                    |> Async.Ignore
+            let! wallDownloaded = wall
+                                  |> Seq.rev
+                                  |> Seq.map downloadPostImages
+                                  |> Async.Parallel
+            return wallDownloaded |> Seq.fold vkPostToBookChapter document
         }
         |> Async.RunSynchronously
+        |> ignore
         0
     | :? (NotParsed<CmdOptions>) -> failwith "Parsing of cmd arguments failed"
     | x ->
