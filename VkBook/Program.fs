@@ -20,7 +20,7 @@ type CmdOptions =
       OutputPath : string
       [<Option("oid", Required = true, HelpText = "vk.com source wall's owner (user or group) id")>]
       OwnerId : Int64
-      [<Option("font-path", Default = "./fonts/Crimson-Roman.ttf", HelpText = "Font file")>]
+      [<Option("font-path", Default = "./fonts/Crimson-Roman.ttf", HelpText = "Path to the font file")>]
       fontPath : string
       [<Option('e', "encoding", Default = "UTF-8", HelpText = "PDF document encoding")>]
       encoding : string
