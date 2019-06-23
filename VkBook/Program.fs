@@ -10,15 +10,22 @@ open iText.Kernel.Font
 open VkBook.Vk
 open VkBook.Domain
 open CommandLine
-open iText.Layout
 
 type Document = iText.Layout.Document
+
+let copyBufSize = 81920
 
 type CmdOptions =
     { [<Option('o', "out", Default = "./book.pdf", HelpText = "Location of the PDF file output")>]
       OutputPath : string
       [<Option("oid", Required = true, HelpText = "vk.com source wall's owner (user or group) id")>]
-      OwnerId : Int64 }
+      OwnerId : Int64
+      [<Option("font-path", Default = "./fonts/Crimson-Roman.ttf", HelpText = "Font file")>]
+      fontPath : string
+      [<Option('e', "encoding", Default = "UTF-8", HelpText = "PDF document encoding")>]
+      encoding : string
+      [<Option("font-size", Default = 14.5f, HelpText = "Font size in points")>]
+      fontSize : float32 }
 
 let readImageBytes (url : Uri) =
     async {
@@ -26,7 +33,7 @@ let readImageBytes (url : Uri) =
         use! r = req.GetResponseAsync() |> Async.AwaitTask
         use ns = r.GetResponseStream()
         use ms = new MemoryStream()
-        ns.CopyTo(ms, 81920)
+        ns.CopyTo(ms, copyBufSize)
         return ms.ToArray()
     }
 
@@ -42,17 +49,17 @@ let downloadPostImages (post : WallPost) =
                  ImageAttachmentsRawBytes = attachmentImagesRaw }
     }
 
+let private createFont (encoding : string) (fontFilePath : string) =
+    PdfFontFactory.CreateFont(fontFilePath, encoding, true)
+
 let vkPostToBookChapter (document : Document) (post : WallPostDownloaded) =
     let configureImage (img : Image) =
         img.SetMargins(float32 10., float32 0., float32 10., float32 0.).SetAutoScaleWidth(true)
            .SetHorizontalAlignment(Nullable<HorizontalAlignment>(HorizontalAlignment.CENTER))
     let paragraph = Paragraph()
-    let ppp = System.Text.CodePagesEncodingProvider.Instance
-    System.Text.Encoding.RegisterProvider(ppp)
-    let fontFilePath = Environment.GetEnvironmentVariable("SystemRoot") + "\\fonts\\georgia.ttf"
     let paragraph =
         paragraph.SetTextAlignment(new Nullable<TextAlignment>(TextAlignment.JUSTIFIED))
-                 .SetFont(PdfFontFactory.CreateFont(fontFilePath, "CP1251", true)).Add(post.Text)
+                 .Add(post.Text)
     let document = document.Add(paragraph)
 
     let document =
@@ -69,13 +76,19 @@ let getConfig =
     if String.IsNullOrEmpty(accessToken) then failwith "VK_ACCESS_TOKEN env var is required"
     accessToken
 
-//TODO: refactor it, especially NotParsed case
 [<EntryPoint>]
 let main argv =
     let accessToken = getConfig
     let result = CommandLine.Parser.Default.ParseArguments<CmdOptions>(argv)
+    let ppp = System.Text.CodePagesEncodingProvider.Instance
+    System.Text.Encoding.RegisterProvider(ppp)
     match result with
     | :? (Parsed<CmdOptions>) as parsed ->
+        let font =
+            parsed.Value.fontPath
+            |> Path.GetFullPath
+            |> createFont parsed.Value.encoding
+
         let ownerId = parsed.Value.OwnerId |> OwnerId
         let outFilePath = Path.GetFullPath(parsed.Value.OutputPath)
         use api = new VkApi()
@@ -83,7 +96,7 @@ let main argv =
         use fs = new FileStream(outFilePath, FileMode.Create)
         use writer = new PdfWriter(fs)
         use pdf = new PdfDocument(writer)
-        use document = new Document(pdf)
+        use document = (new Document(pdf)).SetFontSize(parsed.Value.fontSize).SetFont(font)
         async {
             let! wall = getTransformedWallPosts api ownerId
             let! wallDownloaded = wall
